@@ -51,19 +51,55 @@ export interface Dimension {
   raw: Record<string, unknown>;
 }
 
+/**
+ * What a deployment enforces, including what it does not.
+ *
+ * Two separate things are reported and they are not the same: `governance`
+ * says what the engine enforces before it emits SQL, and `dialect` says what
+ * the warehouse enforces on its own. A caller with direct warehouse
+ * credentials is subject only to the second.
+ */
 export interface Health {
-  model: string;
-  modelVersion: string;
   workspace: string;
+  /** Identifies the exact set of definitions in force. */
   workspaceDigest: string;
-  dialect: string;
+  ossieSpecVersion: string;
+  namespaces: Namespace[];
+  /** The compilation target, and what it secures by itself. */
+  dialect: DialectSecurity;
+  /** The policy resolver this engine applies. */
+  governance: Governance;
+  /** The warehouse driver and its limits, including whether queries run as the caller. */
   executor: string;
-  /**
-   * What this deployment does not enforce, in plain language. Worth reading
-   * before trusting the layer with anything sensitive.
-   */
+  metricCount: number;
+  dimensionCount: number;
+  supportedFilterOps: string[];
+  supportedGrains: string[];
+  /** The gaps, in plain language. Read these. */
   enforcementNotes: string[];
   raw: Record<string, unknown>;
+}
+
+/**
+ * What the target warehouse enforces by itself, independently of the engine.
+ *
+ * When both flags are false the engine's own gate is the only control, and it
+ * applies only to queries that go through the engine.
+ */
+export interface DialectSecurity {
+  dialect: string;
+  columnLevelSecurity: boolean;
+  rowLevelSecurity: boolean;
+  note: string;
+}
+
+/** What the engine's policy resolver enforces. */
+export interface Governance {
+  /** For example bigquery-policy-tags, file, or allow-all. */
+  resolver: string;
+  /** False means every caller may read every column. */
+  columnLevel: boolean;
+  note: string;
 }
 
 export interface Compiled {
@@ -190,17 +226,32 @@ export function parseDimension(p: Record<string, unknown>): Dimension {
 }
 
 export function parseHealth(p: Record<string, unknown>): Health {
+  const dialect = (p.dialect ?? {}) as Record<string, unknown>;
   const governance = (p.governance ?? {}) as Record<string, unknown>;
-  const notes = strs(p.enforcement_notes);
-  if (notes.length === 0 && typeof governance.note === "string") notes.push(governance.note);
   return {
-    model: str(p.model),
-    modelVersion: str(p.model_version),
     workspace: str(p.workspace),
     workspaceDigest: str(p.workspace_digest),
-    dialect: str(p.dialect),
+    ossieSpecVersion: str(p.ossie_spec_version),
+    namespaces: Array.isArray(p.namespaces)
+      ? (p.namespaces as Record<string, unknown>[]).map(parseNamespace)
+      : [],
+    dialect: {
+      dialect: str(dialect.dialect),
+      columnLevelSecurity: bool(dialect.column_level_security),
+      rowLevelSecurity: bool(dialect.row_level_security),
+      note: str(dialect.note),
+    },
+    governance: {
+      resolver: str(governance.resolver),
+      columnLevel: bool(governance.column_level),
+      note: str(governance.note),
+    },
     executor: str(p.executor),
-    enforcementNotes: notes,
+    metricCount: num(p.metric_count),
+    dimensionCount: num(p.dimension_count),
+    supportedFilterOps: strs(p.supported_filter_ops),
+    supportedGrains: strs(p.supported_grains),
+    enforcementNotes: strs(p.enforcement_notes),
     raw: p,
   };
 }

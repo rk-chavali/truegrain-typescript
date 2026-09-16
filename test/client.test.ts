@@ -204,17 +204,32 @@ describe("authentication", () => {
 });
 
 describe("metadata", () => {
-  it("reads the enforcement notes, which say what is not enforced", async () => {
+  it("parses the real health shape, where dialect is an object not a string", async () => {
+    // Caught by running against a real engine: dialect reports what the
+    // warehouse secures by itself, separately from what the engine enforces.
     const { client } = clientWith({
       "GET /v1/health": {
         body: {
-          model: "retail",
-          governance: { resolver: "allow-all", note: "No access control." },
+          workspace: "marketing, sales",
+          workspace_digest: "sha256:a3d1609ce68b",
+          dialect: { dialect: "duckdb", column_level_security: false, row_level_security: false },
+          governance: { resolver: "allow-all", column_level: false, note: "No access control." },
+          executor: "duckdb-cli",
+          metric_count: 10,
+          enforcement_notes: ["No column-level access control is configured."],
         },
       },
     });
+
     const health = await client.health();
-    expect(health.enforcementNotes).toContain("No access control.");
+
+    expect(health.dialect.dialect).toBe("duckdb");
+    expect(health.dialect.columnLevelSecurity).toBe(false);
+    expect(health.governance.resolver).toBe("allow-all");
+    expect(health.workspaceDigest).toBe("sha256:a3d1609ce68b");
+    expect(health.metricCount).toBe(10);
+    // The gaps are what a reader needs most.
+    expect(health.enforcementNotes[0]).toContain("No column-level");
   });
 
   it("normalises dimensions whether they arrive as names or objects", async () => {

@@ -19,7 +19,9 @@ export type { ToolName, ToolSpec } from "./tools.js";
 export type {
   Cell,
   Compiled,
+  DialectSecurity,
   Dimension,
+  Governance,
   Health,
   Job,
   JobState,
