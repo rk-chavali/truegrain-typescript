@@ -19,14 +19,20 @@ name: Publish
 # For the very first publish, before the package exists, publish once from your
 # machine with `npm publish --access public`, then add the trusted publisher.
 #
-# Two things below are load bearing and both fail in the same confusing way,
-# with the registry answering 404 to a publish of a package that plainly
-# exists: the npm upgrade, and the absence of registry-url. See their comments.
+# Three things here are load bearing, and all three fail as a registry error
+# about the package rather than as anything pointing at the cause: the release
+# trigger, the npm upgrade, and the absence of registry-url. Each says why
+# where it sits. Correct settings on npmjs.com are not sufficient without them.
 
+# A release is the only trigger, and workflow_dispatch is deliberately absent
+# rather than merely unused. npm validates the OIDC token's workflow claim,
+# and on a dispatched or called run that claim names the invoking workflow
+# instead of this one, so the trusted publisher never matches and the publish
+# is denied with a 403 that reads like a settings mistake. Leaving the trigger
+# in place would leave a button that cannot work.
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -71,7 +77,6 @@ jobs:
           npm test
 
       - name: Check the version matches the tag
-        if: github.event_name == 'release'
         run: |
           tag="${GITHUB_REF_NAME#v}"
           declared=$(node -p "require('./package.json').version")
