@@ -53,6 +53,7 @@ export const OPERATIONS: Readonly<Record<string, string>> = Object.freeze({
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
+/** Options for the {@link Client} constructor. */
 export interface ClientOptions {
   /**
    * Bearer token identifying the workload. Read it from the environment; never
@@ -71,6 +72,13 @@ export interface ClientOptions {
   fetch?: typeof globalThis.fetch;
 }
 
+/**
+ * A semantic question.
+ *
+ * The same shape serves {@link Client.query}, {@link Client.compile},
+ * {@link Client.submit} and {@link Client.run}. There is no field for SQL, by
+ * design.
+ */
 export interface QueryRequest {
   /**
    * Metric names. Metrics at different grains, or in different namespaces, are
@@ -79,14 +87,25 @@ export interface QueryRequest {
   metrics: string[];
   /** `dataset.field` or `namespace.dataset.field`. */
   dimensions?: string[];
+  /**
+   * Structured predicates, never SQL text. Build them with the
+   * {@link filters} helpers.
+   */
   filters?: Filter[];
   /** Time bucket for the selected time dimension. */
   grain?: string;
   /** Maximum rows. Defaults to the server's limit. */
   limit?: number;
-  orderBy?: Array<{ field: string; desc?: boolean }>;
+  /** Sort keys applied to the result. */
+  orderBy?: Array<{
+    /** A metric or dimension name from the same request. */
+    field: string;
+    /** Sort descending. */
+    desc?: boolean;
+  }>;
 }
 
+/** A {@link QueryRequest}, plus how long to wait and how to page. */
 export interface RunOptions extends QueryRequest {
   /**
    * Milliseconds to wait before giving up. On expiry the job is cancelled
@@ -100,8 +119,11 @@ export interface RunOptions extends QueryRequest {
 
 /** A connection to one truegrain engine. */
 export class Client {
+  /** Where the engine is served, without a trailing slash. */
   readonly baseUrl: string;
+  /** Milliseconds any single call waits before giving up. */
   readonly timeoutMs: number;
+  /** Sent on every request. The engine's audit log records it. */
   readonly userAgent: string;
   readonly #token: string | undefined;
   readonly #fetch: typeof globalThis.fetch;

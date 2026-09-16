@@ -15,14 +15,26 @@
 import type { Client, QueryRequest } from "./client.js";
 import { Refused } from "./errors.js";
 
+/**
+ * The four tools the engine exposes. There is no fifth, and none of them
+ * accepts SQL.
+ */
 export const TOOL_NAMES = ["list_metrics", "describe_metric", "list_dimensions", "query"] as const;
+
+/** One of {@link TOOL_NAMES}. */
 export type ToolName = (typeof TOOL_NAMES)[number];
 
+/** One tool, in the function-schema shape most agent frameworks accept. */
 export interface ToolSpec {
+  /** Always `"function"`, which is what the frameworks expect. */
   type: "function";
+  /** The callable itself. */
   function: {
+    /** The name the model calls back with; pass it to {@link dispatch}. */
     name: ToolName;
+    /** Written for a model rather than a human: when to use this, and when not to. */
     description: string;
+    /** JSON Schema for the arguments. */
     parameters: Record<string, unknown>;
   };
 }

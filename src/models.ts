@@ -11,11 +11,17 @@ import type { Retry } from "./errors.js";
 /** A value the engine can return in a result cell. */
 export type Cell = string | number | boolean | null;
 
+/** One team's independently owned set of definitions. */
 export interface Namespace {
+  /** The namespace name, which qualifies everything inside it. */
   name: string;
+  /** False when the namespace failed to load; see `error`. */
   available: boolean;
+  /** How many metrics it defines that this identity may see. */
   metricCount: number;
+  /** Identifies this namespace's definitions exactly. */
   digest: string;
+  /** Who approves access and answers when a number is disputed. */
   owners: string[];
   /**
    * Present only when the namespace failed to load. An unavailable namespace
@@ -23,31 +29,50 @@ export interface Namespace {
    * that simply had no such metrics.
    */
   error: string;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
+/** Something the engine can measure. */
 export interface Metric {
+  /** Qualified as `namespace.metric`. */
   name: string;
+  /** The namespace that owns and governs this definition. */
   namespace: string;
+  /**
+   * The grounding text an agent reads to decide whether this metric answers
+   * the question that was asked. It is not decoration.
+   */
   description: string;
+  /** The logical type of the value, for example Decimal or Integer. */
   datatype: string;
+  /** Other names that resolve to this metric, such as "top line". */
   synonyms: string[];
   /** Only the dimensions this identity may group the metric by. */
   dimensions: string[];
   /** The metric's definition. Present on describeMetric, absent on a list. */
   definition?: string;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
+/** Something a metric can be grouped or filtered by. */
 export interface Dimension {
+  /** `dataset.field`, or `namespace.dataset.field`. */
   name: string;
+  /** The namespace that owns and governs this field. */
   namespace: string;
+  /** The logical type of the value. */
   datatype: string;
+  /** Whether this dimension accepts a `grain`. */
   isTime: boolean;
+  /** What the field means, written for a reader rather than for a schema. */
   description: string;
+  /** Other names that resolve to this dimension. */
   synonyms: string[];
   /** Legal time buckets. Present only when isTime. */
   grains: string[];
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
@@ -60,10 +85,13 @@ export interface Dimension {
  * credentials is subject only to the second.
  */
 export interface Health {
+  /** The namespaces served, as a readable list. */
   workspace: string;
   /** Identifies the exact set of definitions in force. */
   workspaceDigest: string;
+  /** The Apache Ossie spec version the models declare. */
   ossieSpecVersion: string;
+  /** Each namespace, and whether it loaded. */
   namespaces: Namespace[];
   /** The compilation target, and what it secures by itself. */
   dialect: DialectSecurity;
@@ -71,12 +99,17 @@ export interface Health {
   governance: Governance;
   /** The warehouse driver and its limits, including whether queries run as the caller. */
   executor: string;
+  /** How many metrics this identity may see. */
   metricCount: number;
+  /** How many dimensions this identity may see. */
   dimensionCount: number;
+  /** The operators a {@link Filter} may use. */
   supportedFilterOps: string[];
+  /** The legal values for a request's `grain`. */
   supportedGrains: string[];
   /** The gaps, in plain language. Read these. */
   enforcementNotes: string[];
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
@@ -87,9 +120,13 @@ export interface Health {
  * applies only to queries that go through the engine.
  */
 export interface DialectSecurity {
+  /** The compilation target, for example `bigquery` or `duckdb`. */
   dialect: string;
+  /** Whether the warehouse restricts columns itself, such as with policy tags. */
   columnLevelSecurity: boolean;
+  /** Whether the warehouse filters rows itself. */
   rowLevelSecurity: boolean;
+  /** The limits, in plain language. */
   note: string;
 }
 
@@ -99,38 +136,59 @@ export interface Governance {
   resolver: string;
   /** False means every caller may read every column. */
   columnLevel: boolean;
+  /** The limits, in plain language. */
   note: string;
 }
 
+/** The SQL a request compiles to, without having run it. */
 export interface Compiled {
+  /** The statement the engine would execute. */
   compiledSql: string;
+  /** The result columns, in order. */
   columns: string[];
+  /** The dialect the statement is written in. */
   dialect: string;
+  /** The namespaces the query touched. */
   namespace: string;
+  /** The exact set of definitions that produced this. */
   modelVersion: string;
   /** How many facts were aggregated separately and joined. */
   parts: number;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
 /** Rows, plus the provenance needed to defend the numbers in them. */
 export interface Result {
+  /** The result columns, in order. Row values line up with these. */
   columns: string[];
+  /** The rows, each aligned to `columns`. */
   rows: Cell[][];
+  /** How many rows are in `rows`. */
   rowCount: number;
   /**
    * The exact statement executed. Carried on every response on purpose: it is
    * how a disagreement about a number gets settled.
    */
   compiledSql: string;
+  /** The exact set of definitions that produced these numbers. */
   modelVersion: string;
+  /** The namespaces the query touched. */
   namespace: string;
+  /** The dialect the statement was written in. */
   dialect: string;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
   /** Rows as objects keyed by column name. */
   toObjects(): Record<string, Cell>[];
 }
 
+/**
+ * Where an asynchronous query has got to.
+ *
+ * `running` is the only non-terminal state, and `cancelled` is distinct from
+ * `failed` because the caller stopped it rather than the warehouse failing.
+ */
 export type JobState = "running" | "succeeded" | "failed" | "cancelled";
 
 /**
@@ -141,13 +199,16 @@ export type JobState = "running" | "succeeded" | "failed" | "cancelled";
  * rather than the warehouse failing.
  */
 export interface Job {
+  /** Opaque identifier, 128 bits of randomness. Poll and cancel with it. */
   jobId: string;
+  /** Where the query has got to. Branch on this. */
   state: JobState;
   /**
    * Available from the moment of submission: compilation, and therefore the
    * governance gate, runs synchronously before the job exists.
    */
   compiledSql: string;
+  /** The result columns, in order. */
   columns: string[];
   /** One page of rows. Use `run()` to collect every page. */
   rows: Cell[][];
@@ -155,14 +216,21 @@ export interface Job {
   rowCount: number;
   /** Present when more rows remain. Pass it back as `cursor`. */
   nextCursor: string;
+  /** The exact set of definitions that produced this. */
   modelVersion: string;
+  /** The namespaces the query touched. */
   namespace: string;
+  /** The dialect the statement was written in. */
   dialect: string;
   /** Set only when the job failed. Same vocabulary as a synchronous refusal. */
   code: string;
+  /** One sentence stating what went wrong. Set only on failure. */
   reason: string;
+  /** What to do instead. Set only on failure. */
   hint: string;
+  /** How to treat the failure. Empty unless the job failed. */
   retry: Retry | "";
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 

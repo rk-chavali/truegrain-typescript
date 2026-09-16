@@ -42,6 +42,10 @@ export class Refused extends TruegrainError {
    * at the grain where the question is well defined.
    */
   readonly hint: string;
+  /**
+   * How to treat this refusal. Prefer {@link Refused.shouldModify},
+   * {@link Refused.shouldWait} and {@link Refused.isFinal} to comparing it.
+   */
   readonly retry: Retry;
   /** The HTTP status that carried the refusal. 0 when it came from a job. */
   readonly status: number;
@@ -67,6 +71,12 @@ export class Refused extends TruegrainError {
     this.status = init.status ?? 0;
   }
 
+  /**
+   * Build a refusal from an engine error body.
+   *
+   * Unrecognised values fall back to `never`, which stops a caller rather than
+   * inviting it to loop on something this client did not understand.
+   */
   static fromPayload(payload: Record<string, unknown>, status: number): Refused {
     return new Refused({
       code: typeof payload.code === "string" ? payload.code : "unknown",

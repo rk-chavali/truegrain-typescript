@@ -9,6 +9,7 @@
  * the call site rather than as a refusal from the server.
  */
 
+/** The comparison a {@link Filter} applies. */
 export type FilterOp =
   | "eq"
   | "ne"
@@ -22,11 +23,25 @@ export type FilterOp =
   | "is_null"
   | "is_not_null";
 
+/** A value a filter compares against. Never a SQL expression. */
 export type FilterValue = string | number | boolean | null;
 
+/**
+ * A structured predicate.
+ *
+ * Build one with {@link eq}, {@link isIn}, {@link between} and the rest rather
+ * than by hand: a misspelled operator is then caught at the call site instead
+ * of arriving as a refusal from the server.
+ */
 export interface Filter {
+  /** `dataset.field`, or `namespace.dataset.field`. */
   dimension: string;
+  /** The comparison to apply. */
   op: FilterOp;
+  /**
+   * One value for the comparisons, two for `between`, one or more for `in`
+   * and `not_in`, and absent for the null checks.
+   */
   values?: FilterValue[];
 }
 

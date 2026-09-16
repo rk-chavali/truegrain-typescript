@@ -30,4 +30,5 @@ export type {
   Result,
 } from "./models.js";
 
+/** The version of this client package. */
 export const VERSION = "0.1.0";
