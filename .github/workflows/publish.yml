@@ -36,6 +36,8 @@ on:
 
 permissions:
   contents: read
+  # Required so npm can exchange GitHub's OIDC identity for a publish token.
+  id-token: write
 
 jobs:
   publish:
