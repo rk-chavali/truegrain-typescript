@@ -247,3 +247,25 @@ describe("metadata", () => {
     expect((await client.metric("order_revenue")).dimensions).toEqual(["customers.region"]);
   });
 });
+
+describe("browser compatibility", () => {
+  it("calls fetch bound to its global, not detached", async () => {
+    // A browser's fetch throws "Illegal invocation" when called without its
+    // window as the receiver. Under Node it does not, so this would otherwise
+    // only ever fail for a user. Shipped broken in 0.1.0.
+    let receiver: unknown = "never called";
+    const globalLike = {
+      fetch(this: unknown) {
+        receiver = this;
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      },
+    };
+
+    const client = new Client("http://engine.test", {
+      fetch: globalLike.fetch as unknown as typeof fetch,
+    });
+    await client.health();
+
+    expect(receiver, "fetch must be invoked with a receiver, not detached").not.toBe(undefined);
+  });
+});

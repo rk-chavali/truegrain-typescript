@@ -1,6 +1,6 @@
 {
   "name": "truegrain",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript client for truegrain. Governed metrics for agents, notebooks and applications. No dependencies.",
   "type": "module",
   "license": "Apache-2.0",

@@ -141,7 +141,11 @@ export class Client {
         "no fetch available; use Node 18 or later, or pass one as options.fetch",
       );
     }
-    this.#fetch = f;
+    // Bound to globalThis. A browser's fetch refuses to run detached from its
+    // window and throws "Illegal invocation", so storing the bare reference
+    // works under Node and breaks in every browser. An injected fetch is bound
+    // too, which costs nothing and spares a caller from having to know this.
+    this.#fetch = f.bind(globalThis);
   }
 
   /**
