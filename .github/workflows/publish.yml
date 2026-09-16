@@ -18,6 +18,10 @@ name: Publish
 #
 # For the very first publish, before the package exists, publish once from your
 # machine with `npm publish --access public`, then add the trusted publisher.
+#
+# Two things below are load bearing and both fail in the same confusing way,
+# with the registry answering 404 to a publish of a package that plainly
+# exists: the npm upgrade, and the absence of registry-url. See their comments.
 
 on:
   release:
@@ -38,11 +42,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # registry-url is deliberately absent. Given it, setup-node writes an
+      # .npmrc containing `_authToken=${NODE_AUTH_TOKEN}`, and with no such
+      # secret set that expands to its own placeholder. npm then sends a
+      # credential that is a literal string of X characters, and the registry
+      # answers a publish with 404 rather than admitting the package exists.
+      # Trusted publishing needs no .npmrc at all.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
           cache: npm
+
+      # Node 22 bundles npm 10, which can sign a provenance statement but
+      # cannot authenticate with OIDC: that arrived in npm 11.5.1. Without it
+      # the job does the signing, publishes to the transparency log, and only
+      # then fails on the upload, which reads like a permissions problem and
+      # is not one. Pinned rather than @latest so a publish is reproducible.
+      - name: Use an npm that can authenticate with OIDC
+        run: npm install -g npm@11.19.1
 
       - run: npm ci
 
