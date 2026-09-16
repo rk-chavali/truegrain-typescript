@@ -1,0 +1,71 @@
+name: Publish
+
+# Publishing uses npm's OIDC trusted publishing, so there is no npm token in
+# this repository and none in an organisation secret. npm verifies a
+# short-lived token GitHub mints for this workflow in this repository, which
+# means a leaked secret cannot be used to publish because there is no secret.
+#
+# It also attaches a provenance attestation, so anyone installing the package
+# can verify which commit and which workflow produced the tarball.
+#
+# Setting it up, once, on npmjs.com:
+#   Package settings -> Publishing access -> Require two-factor authentication
+#     or an automation token, then add a trusted publisher:
+#       Organization or user: rk-chavali
+#       Repository:           truegrain-typescript
+#       Workflow:             publish.yml
+#       Environment:          npm
+#
+# For the very first publish, before the package exists, publish once from your
+# machine with `npm publish --access public`, then add the trusted publisher.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      # The OIDC token npm verifies, and what provenance is signed with.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - run: npm ci
+
+      # The tests run again here rather than trusting the CI run on the commit.
+      # A release is built from a tag, and a tag can point anywhere.
+      - name: Test before publishing
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Check the version matches the tag
+        if: github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$declared" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $declared"
+            echo "a package whose version disagrees with its tag cannot be traced back to a commit"
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish --provenance --access public

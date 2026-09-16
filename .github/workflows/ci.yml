@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The client uses only fetch, so the range it supports is the range it
+        # is tested on rather than whatever the maintainer happens to run.
+        node: ["18", "20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Includes covers-spec.test.ts, which fails when the engine gains an
+      # operation this client cannot call.
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  no-dependencies:
+    name: Ships with no runtime dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # The point of this client is that installing it into an application
+      # cannot conflict with anything already there. That claim is only true
+      # while it has no runtime dependencies, so it is tested rather than
+      # asserted in the README.
+      - name: The manifest declares no dependencies
+        run: |
+          count=$(node -p "Object.keys(require('./package.json').dependencies || {}).length")
+          if [ "$count" != "0" ]; then
+            echo "this package declares $count runtime dependency/ies; it must declare none"
+            node -p "JSON.stringify(require('./package.json').dependencies, null, 2)"
+            exit 1
+          fi
+
+      # A packed tarball is what a consumer actually installs. Building and
+      # importing it catches an export map that is wrong in ways the source
+      # tree hides.
+      - name: Pack, install and import the tarball
+        run: |
+          npm run build
+          npm pack --silent
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y >/dev/null
+          npm install --silent "$GITHUB_WORKSPACE"/truegrain-*.tgz
+          node --input-type=module -e "
+            import { Client, Refused, filters, tools, VERSION } from 'truegrain';
+            const c = new Client('http://127.0.0.1:8080', { token: 'not-used' });
+            if (filters.eq('orders.status', 'shipped').op !== 'eq') throw new Error('filters');
+            if (tools.toolSpecs().length !== 4) throw new Error('tool specs');
+            const r = new Refused({ code: 'x', reason: 'y', retry: 'modify' });
+            if (!r.shouldModify || r.isFinal) throw new Error('refusal semantics');
+            console.log('installed from the tarball and works:', VERSION);
+          "
