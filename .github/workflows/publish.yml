@@ -1,0 +1,110 @@
+name: Publish
+
+# Publishing uses npm's OIDC trusted publishing, so there is no npm token in
+# this repository and none in an organisation secret. npm verifies a
+# short-lived token GitHub mints for this workflow in this repository, which
+# means a leaked secret cannot be used to publish because there is no secret.
+#
+# It also attaches a provenance attestation, so anyone installing the package
+# can verify which commit and which workflow produced the tarball.
+#
+# Setting it up, once, on npmjs.com, under the package's Trusted Publisher:
+#       Organization or user: rk-chavali
+#       Repository:           truegrain-typescript
+#       Workflow:             publish.yml
+#       Environment:          npm
+#       Allowed actions:      npm publish
+#
+# That last line is the one that is easy to miss and gives the least helpful
+# error. From 03 September 2026 a new configuration is granted `npm stage
+# publish` only, and direct publishing is an opt-in checkbox beside it. Without
+# it the registry answers `403 OIDC permission denied for this action`, where
+# "this action" means publishing directly rather than staging. Everything else
+# about the run can be correct and it still fails.
+#
+# The alternative is to leave direct publishing off and run `npm stage publish`
+# here instead, which parks each version until a maintainer approves it with
+# 2FA. That is the stronger posture and it is not what this workflow does,
+# because a tag is already a deliberate act by someone holding push access.
+#
+# For the very first publish, before the package exists, publish once from your
+# machine with `npm publish --access public`, then add the trusted publisher.
+#
+# Three things in the job are load bearing, and each fails as a registry error
+# about the package rather than as anything pointing at the cause: the npm
+# upgrade, the absence of registry-url, and this trigger. Each says why where
+# it sits. Correct settings on npmjs.com are not sufficient without them.
+
+# Pushing a tag publishes. npm validates the workflow claim in the OIDC token,
+# and on a dispatched or called run that claim names the invoking workflow
+# rather than this one, so neither workflow_dispatch nor workflow_call can ever
+# authenticate here. A tag push runs this file directly, so the claim is right.
+#
+# One trigger, not two. Creating a GitHub release also pushes its tag, so
+# accepting both would run this twice for one version and the loser would fail
+# on a version that already exists.
+on:
+  push:
+    tags:
+      - "v*"
+
+# The workflow default, which every job narrows or widens for itself. Minting
+# an OIDC identity is granted to the publish job below and not here, so a job
+# added later has to ask for it rather than inherit it.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      # The OIDC token npm verifies, and what provenance is signed with.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # registry-url is deliberately absent. Given it, setup-node writes an
+      # .npmrc containing `_authToken=${NODE_AUTH_TOKEN}`, and with no such
+      # secret set that expands to its own placeholder. npm then sends a
+      # credential that is a literal string of X characters, and the registry
+      # answers a publish with 404 rather than admitting the package exists.
+      # Trusted publishing needs no .npmrc at all.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # Node 22 bundles npm 10, which can sign a provenance statement but
+      # cannot authenticate with OIDC: that arrived in npm 11.5.1. Without it
+      # the job does the signing, publishes to the transparency log, and only
+      # then fails on the upload, which reads like a permissions problem and
+      # is not one. Pinned rather than @latest so a publish is reproducible.
+      - name: Use an npm that can authenticate with OIDC
+        run: npm install -g npm@11.19.1
+
+      - run: npm ci
+
+      # The tests run again here rather than trusting the CI run on the commit.
+      # A release is built from a tag, and a tag can point anywhere.
+      - name: Test before publishing
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Check the version matches the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$declared" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $declared"
+            echo "a package whose version disagrees with its tag cannot be traced back to a commit"
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish --provenance --access public

@@ -1,0 +1,54 @@
+{
+  "name": "truegrain",
+  "version": "1.0.0",
+  "description": "TypeScript client for truegrain. Governed metrics for agents, notebooks and applications. No dependencies.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Rama Krishna Chavali",
+  "homepage": "https://github.com/rk-chavali/truegrain-typescript#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rk-chavali/truegrain-typescript.git"
+  },
+  "bugs": "https://github.com/rk-chavali/truegrain-typescript/issues",
+  "keywords": [
+    "semantic-layer",
+    "metrics",
+    "ossie",
+    "governance",
+    "agents",
+    "mcp",
+    "bigquery"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "version": "node scripts/sync-version.mjs && git add src/index.ts",
+    "prepublishOnly": "npm run build",
+    "docs": "typedoc"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typedoc": "^0.28.20",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.7",
+    "yaml": "^2.8.1"
+  }
+}
