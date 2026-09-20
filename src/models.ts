@@ -543,9 +543,11 @@ export interface Finding {
   severity: string;
   /** What it is about, in model terms. */
   dataset: string;
+  /** The field, when the finding is about one rather than a whole table. */
   field: string;
   /** The physical table, for somebody about to go and look. */
   source: string;
+  /** What is wrong, in one sentence. */
   message: string;
   /** What to do, when there is something to do. */
   hint: string;
@@ -560,7 +562,9 @@ export interface Finding {
 export interface Diagnosis {
   /** False when a finding would break a query. Not the same as having none. */
   ok: boolean;
+  /** How many tables were actually inspected. */
   tablesChecked: number;
+  /** Everything wrong, or worth knowing, ordered as the engine found it. */
   findings: Finding[];
   /**
    * Why nothing was checked, when nothing was. A Diagnosis with no findings
@@ -568,6 +572,7 @@ export interface Diagnosis {
    * everything is fine.
    */
   skipped: string;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
@@ -575,8 +580,11 @@ export interface Diagnosis {
 export interface DoctorRun {
   /** RFC 3339. */
   at: string;
+  /** False when a finding would break a query. */
   ok: boolean;
+  /** How many tables this run inspected. */
   tablesChecked: number;
+  /** How many findings it produced. A count, not the findings themselves. */
   findings: number;
   /** Set when the check could not run at all, which is not the same as
    * running and finding something wrong. */
@@ -588,22 +596,29 @@ export interface DoctorRun {
 
 /** What the scheduled check has seen, oldest first. */
 export interface DoctorHistory {
+  /** The runs kept, oldest first. A bounded window, not the whole record. */
   runs: DoctorRun[];
   /** The configured interval, which is how a reader tells a gap from a check
    * that has simply not come round yet. */
   everySeconds: number;
   /** Runs that completed and found the warehouse changed. */
   drifted: number;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
 /** One assertion and what became of it. */
 export interface TestCase {
+  /** The case's name, as the suite declares it. */
   name: string;
+  /** Whether it asserted what it claimed. False for a skipped case too, so
+   * read `skipped` before reporting a failure. */
   passed: boolean;
+  /** Whether it was not run. A skipped case is not a failing one. */
   skipped: boolean;
   /** Why, for a case that failed or was skipped. */
   reason: string;
+  /** How long it took, as the engine measured it. */
   durationMs: number;
 }
 
@@ -616,18 +631,26 @@ export interface TestCase {
  * conclude a suite passed when half of it never ran.
  */
 export interface TestReport {
+  /** True when nothing failed. Not the same as everything having run: see
+   * `withheld`. */
   ok: boolean;
+  /** Cases that asserted what they claimed. */
   passed: number;
+  /** Cases that did not. */
   failed: number;
+  /** Cases the suite itself declined to run. */
   skipped: number;
   /** Cases this credential may not run. */
   withheld: number;
+  /** Every case, in the order the suite declares them. */
   results: TestCase[];
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
 /** What the engine enforces. Says nothing about who is allowed what. */
 export interface Policy {
+  /** The resolver in force, and whether it makes column-level decisions. */
   governance: Governance;
   /**
    * The gaps in plain language. Read these: an engine running allow-all says
@@ -635,6 +658,7 @@ export interface Policy {
    * product has one.
    */
   enforcementNotes: string[];
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
@@ -646,17 +670,23 @@ export interface Policy {
  * here for another identity and no endpoint that takes one.
  */
 export interface PolicyExplanation {
+  /** The metric asked about, qualified as the engine reports it. */
   metric: string;
+  /** Who is asking. This answer is about them and nobody else. */
   identity: string;
   /** The dimensions this caller may group the metric by, qualified and sorted. */
   readable: string[];
+  /** The resolver that produced this answer. */
   governance: Governance;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
 /** What one request compiled to before and after a reload. */
 export interface Change {
+  /** The SQL the request compiled to before the reload. */
   before: string;
+  /** What it compiles to now. */
   after: string;
 }
 
@@ -669,14 +699,19 @@ export interface Change {
  * not appear here; changing a join, a grain or an expression does.
  */
 export interface Diff {
+  /** Whether anything moved at all. */
   changed: boolean;
   /** The model versions either side of the reload. */
   from: string;
+  /** The model version serving now. */
   to: string;
+  /** Requests the new model answers and the old one did not. */
   added: string[];
+  /** Requests the old model answered and the new one does not. */
   removed: string[];
   /** Request label to its SQL before and after. */
   altered: Record<string, Change>;
+  /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
 }
 
