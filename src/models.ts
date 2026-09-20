@@ -109,8 +109,36 @@ export interface Health {
   supportedGrains: string[];
   /** The gaps, in plain language. Read these. */
   enforcementNotes: string[];
+  /**
+   * Where the served model came from, or `undefined` when the engine read it
+   * from a path. Undefined is the answer to "is this deployment under version
+   * control", so check it before reading through it.
+   */
+  origin?: Origin;
   /** The unparsed payload, so a new server field is readable without an SDK release. */
   raw: Record<string, unknown>;
+}
+
+/**
+ * The commit a served model came from.
+ *
+ * How {@link Client.reload} is confirmed. Reload names no commit, because a
+ * sync is not instant and reporting one before the swap happened would be a
+ * claim a pipeline then asserts as fact. A deploy is finished when
+ * {@link Health.origin} reports the commit you merged, and not before.
+ *
+ * Carries no credential. A repository URL with one in it is refused at
+ * startup rather than stored here and redacted on the way out.
+ */
+export interface Origin {
+  /** The clone URL, without credentials. */
+  repository: string;
+  /** The branch, tag or commit asked for. A ref moves; read `commit`. */
+  ref: string;
+  /** The revision serving right now. */
+  commit: string;
+  /** The directory inside the repository holding the workspace. */
+  subdirectory: string;
 }
 
 /**
@@ -320,7 +348,17 @@ export function parseHealth(p: Record<string, unknown>): Health {
     supportedFilterOps: strs(p.supported_filter_ops),
     supportedGrains: strs(p.supported_grains),
     enforcementNotes: strs(p.enforcement_notes),
+    ...(p.origin ? { origin: parseOrigin(p.origin as Record<string, unknown>) } : {}),
     raw: p,
+  };
+}
+
+export function parseOrigin(p: Record<string, unknown>): Origin {
+  return {
+    repository: str(p.repository),
+    ref: str(p.ref),
+    commit: str(p.commit),
+    subdirectory: str(p.subdirectory),
   };
 }
 
@@ -492,6 +530,253 @@ export function parseAuditPage(p: Record<string, unknown>): AuditPage {
     events: events.map((e) => parseAuditEvent(e as Record<string, unknown>)),
     count: num(p.count),
     note: str(p.note),
+    raw: p,
+  };
+}
+
+
+// ---------- what the engine says about itself ----------
+
+/** One thing the warehouse disagrees with the model about. */
+export interface Finding {
+  /** `error` breaks a query. `warning` will not break today. */
+  severity: string;
+  /** What it is about, in model terms. */
+  dataset: string;
+  field: string;
+  /** The physical table, for somebody about to go and look. */
+  source: string;
+  message: string;
+  /** What to do, when there is something to do. */
+  hint: string;
+}
+
+/**
+ * What the warehouse says about the model right now.
+ *
+ * It reports rather than refuses: a model can be wrong in ways that do not
+ * matter yet, and which of those to act on is a person's decision.
+ */
+export interface Diagnosis {
+  /** False when a finding would break a query. Not the same as having none. */
+  ok: boolean;
+  tablesChecked: number;
+  findings: Finding[];
+  /**
+   * Why nothing was checked, when nothing was. A Diagnosis with no findings
+   * and `skipped` set is the engine saying it could not look, not saying
+   * everything is fine.
+   */
+  skipped: string;
+  raw: Record<string, unknown>;
+}
+
+/** One scheduled check. */
+export interface DoctorRun {
+  /** RFC 3339. */
+  at: string;
+  ok: boolean;
+  tablesChecked: number;
+  findings: number;
+  /** Set when the check could not run at all, which is not the same as
+   * running and finding something wrong. */
+  error: string;
+  /** Ties the result to what was being served, so a run from before a reload
+   * is not read as evidence about the model after it. */
+  modelVersion: string;
+}
+
+/** What the scheduled check has seen, oldest first. */
+export interface DoctorHistory {
+  runs: DoctorRun[];
+  /** The configured interval, which is how a reader tells a gap from a check
+   * that has simply not come round yet. */
+  everySeconds: number;
+  /** Runs that completed and found the warehouse changed. */
+  drifted: number;
+  raw: Record<string, unknown>;
+}
+
+/** One assertion and what became of it. */
+export interface TestCase {
+  name: string;
+  passed: boolean;
+  skipped: boolean;
+  /** Why, for a case that failed or was skipped. */
+  reason: string;
+  durationMs: number;
+}
+
+/**
+ * The result of every case in the suite.
+ *
+ * Read `withheld` as well as `ok`. A credential without `run:query` cannot
+ * cause warehouse execution, so cases that would are withheld and counted
+ * rather than run or silently dropped, and a caller reading only `ok` would
+ * conclude a suite passed when half of it never ran.
+ */
+export interface TestReport {
+  ok: boolean;
+  passed: number;
+  failed: number;
+  skipped: number;
+  /** Cases this credential may not run. */
+  withheld: number;
+  results: TestCase[];
+  raw: Record<string, unknown>;
+}
+
+/** What the engine enforces. Says nothing about who is allowed what. */
+export interface Policy {
+  governance: Governance;
+  /**
+   * The gaps in plain language. Read these: an engine running allow-all says
+   * so here rather than letting a reader assume a gate exists because the
+   * product has one.
+   */
+  enforcementNotes: string[];
+  raw: Record<string, unknown>;
+}
+
+/**
+ * What the calling identity may read of a metric, and why.
+ *
+ * For the caller only. An engine that reported what somebody else can see
+ * would publish the policy it was configured to enforce, so there is no field
+ * here for another identity and no endpoint that takes one.
+ */
+export interface PolicyExplanation {
+  metric: string;
+  identity: string;
+  /** The dimensions this caller may group the metric by, qualified and sorted. */
+  readable: string[];
+  governance: Governance;
+  raw: Record<string, unknown>;
+}
+
+/** What one request compiled to before and after a reload. */
+export interface Change {
+  before: string;
+  after: string;
+}
+
+/**
+ * What the last reload moved.
+ *
+ * Compared on compiled SQL rather than on model text, because that is where a
+ * silent correctness incident lives: the model still validates, the tests
+ * still pass, and every dashboard quietly moves. Renaming a description does
+ * not appear here; changing a join, a grain or an expression does.
+ */
+export interface Diff {
+  changed: boolean;
+  /** The model versions either side of the reload. */
+  from: string;
+  to: string;
+  added: string[];
+  removed: string[];
+  /** Request label to its SQL before and after. */
+  altered: Record<string, Change>;
+  raw: Record<string, unknown>;
+}
+
+/** What a {@link Client.reload} was told. */
+export type ReloadStatus = "reading" | "already running";
+
+const records = (v: unknown): Record<string, unknown>[] =>
+  Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+
+export function parseFinding(p: Record<string, unknown>): Finding {
+  return {
+    severity: str(p.severity),
+    dataset: str(p.dataset),
+    field: str(p.field),
+    source: str(p.source),
+    message: str(p.message),
+    hint: str(p.hint),
+  };
+}
+
+export function parseDiagnosis(p: Record<string, unknown>): Diagnosis {
+  return {
+    ok: bool(p.ok, true),
+    tablesChecked: num(p.tables_checked),
+    findings: records(p.findings).map(parseFinding),
+    skipped: str(p.skipped),
+    raw: p,
+  };
+}
+
+export function parseDoctorHistory(p: Record<string, unknown>): DoctorHistory {
+  return {
+    runs: records(p.runs).map((r) => ({
+      at: str(r.at),
+      ok: bool(r.ok, true),
+      tablesChecked: num(r.tables_checked),
+      findings: num(r.findings),
+      error: str(r.error),
+      modelVersion: str(r.model_version),
+    })),
+    everySeconds: num(p.every_seconds),
+    drifted: num(p.drifted),
+    raw: p,
+  };
+}
+
+export function parseTestReport(p: Record<string, unknown>): TestReport {
+  return {
+    ok: bool(p.ok),
+    passed: num(p.passed),
+    failed: num(p.failed),
+    skipped: num(p.skipped),
+    withheld: num(p.withheld),
+    results: records(p.results).map((r) => ({
+      name: str(r.name),
+      passed: bool(r.passed),
+      skipped: bool(r.skipped),
+      reason: str(r.reason),
+      durationMs: num(r.duration_ms),
+    })),
+    raw: p,
+  };
+}
+
+function governanceOf(v: unknown): Governance {
+  const g = (v ?? {}) as Record<string, unknown>;
+  return { resolver: str(g.resolver), columnLevel: bool(g.column_level), note: str(g.note) };
+}
+
+export function parsePolicy(p: Record<string, unknown>): Policy {
+  return {
+    governance: governanceOf(p.governance),
+    enforcementNotes: strs(p.enforcement_notes),
+    raw: p,
+  };
+}
+
+export function parsePolicyExplanation(p: Record<string, unknown>): PolicyExplanation {
+  return {
+    metric: str(p.metric),
+    identity: str(p.identity),
+    readable: strs(p.readable),
+    governance: governanceOf(p.governance),
+    raw: p,
+  };
+}
+
+export function parseDiff(p: Record<string, unknown>): Diff {
+  const altered: Record<string, Change> = {};
+  for (const [label, change] of Object.entries((p.altered ?? {}) as Record<string, unknown>)) {
+    const c = (change ?? {}) as Record<string, unknown>;
+    altered[label] = { before: str(c.before), after: str(c.after) };
+  }
+  return {
+    changed: bool(p.changed),
+    from: str(p.from),
+    to: str(p.to),
+    added: strs(p.added),
+    removed: strs(p.removed),
+    altered,
     raw: p,
   };
 }

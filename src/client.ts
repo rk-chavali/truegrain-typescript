@@ -21,6 +21,12 @@ import {
   parseMetric,
   parseNamespace,
   parseResult,
+  parseDiagnosis,
+  parseDoctorHistory,
+  parseTestReport,
+  parsePolicy,
+  parsePolicyExplanation,
+  parseDiff,
   type AuditDecision,
   type AuditPage,
   type Cell,
@@ -31,6 +37,13 @@ import {
   type Metric,
   type Namespace,
   type Result,
+  type Diagnosis,
+  type DoctorHistory,
+  type TestReport,
+  type Policy,
+  type PolicyExplanation,
+  type Diff,
+  type ReloadStatus,
 } from "./models.js";
 
 /**
@@ -53,6 +66,13 @@ export const OPERATIONS: Readonly<Record<string, string>> = Object.freeze({
   getJob: "job",
   cancelJob: "cancelJob",
   listAudit: "audit",
+  doctor: "doctor",
+  doctorHistory: "doctorHistory",
+  runTests: "runTests",
+  policy: "policy",
+  explainPolicy: "explainPolicy",
+  diff: "diff",
+  reload: "reload",
 });
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
@@ -388,6 +408,133 @@ export class Client {
     };
     if (this.#token) headers.Authorization = `Bearer ${this.#token}`;
     return headers;
+  }
+
+  // ---------- what the engine says about itself ----------
+  //
+  // Everything here is metadata. None of it reads a row, which is why all but
+  // reload need only read:model, and why a pipeline that checks a model does
+  // not also need a credential that can read the warehouse.
+  //
+  // Four answer 404 rather than an empty success, and the difference matters:
+  // an engine with no test suite is not an engine whose tests pass, an engine
+  // that has never reloaded is not one in which nothing changed, and an engine
+  // checking nothing on a timer has no history rather than a clean one. Each
+  // arrives as a {@link Refused}.
+
+  /**
+   * Ask the warehouse whether the model is still true.
+   *
+   * Everything else validates the model against itself: the YAML parses, the
+   * joins resolve, the expressions compile. None of that notices that somebody
+   * dropped a column last Tuesday, and the first sign of that is usually a
+   * caller getting an error, which is the most expensive place to find it.
+   *
+   * Reports rather than refuses, so a rejection here means the check could not
+   * run. Read `ok` for the verdict and `skipped` for the case where nothing
+   * could be checked at all.
+   */
+  async doctor(): Promise<Diagnosis> {
+    return parseDiagnosis(await this.#get("/v1/doctor"));
+  }
+
+  /**
+   * What the scheduled warehouse check has seen, oldest first.
+   *
+   * Drift is found by looking regularly, not by looking once, which is how
+   * "when did this start" stays answerable. An engine started without
+   * `-doctor-every` has nothing scheduled and answers 404 as {@link Refused}.
+   */
+  async doctorHistory(): Promise<DoctorHistory> {
+    return parseDoctorHistory(await this.#get("/v1/doctor/history"));
+  }
+
+  /**
+   * Assert what this model answers.
+   *
+   * `validate` says the model holds together and {@link diff} says a number
+   * changed. Neither says a number was ever right.
+   *
+   * Check `withheld` as well as `ok`. A credential without `run:query` cannot
+   * cause warehouse execution, so cases that would are withheld and counted
+   * rather than run or silently dropped, and a caller reading only `ok` would
+   * conclude a suite passed when half of it never ran.
+   */
+  async runTests(): Promise<TestReport> {
+    return parseTestReport(await this.#post("/v1/tests", {}));
+  }
+
+  /**
+   * What this engine enforces, and what it does not.
+   *
+   * Says nothing about who is allowed what. For that, and only about
+   * yourself, use {@link explainPolicy}.
+   */
+  async policy(): Promise<Policy> {
+    return parsePolicy(await this.#get("/v1/policy"));
+  }
+
+  /**
+   * What you may read of a metric, and why.
+   *
+   * Answers "why can I not group by that column" without running a query and
+   * being denied. For the calling identity only, which is a security property
+   * rather than a limitation: an endpoint that reported another identity's
+   * access would publish the policy it was configured to enforce.
+   *
+   * @param metric The qualified name, as {@link metrics} reports it.
+   */
+  async explainPolicy(metric: string): Promise<PolicyExplanation> {
+    if (!metric) {
+      // Refused here rather than sent, so a caller who forgot the argument
+      // reads that instead of a 400 naming a field they did not write.
+      throw new TypeError("truegrain: name the metric to explain");
+    }
+    return parsePolicyExplanation(await this.#post("/v1/policy/explain", { metric }));
+  }
+
+  /**
+   * Whether the last model reload moved a number.
+   *
+   * This compares the model being served against the one served before it,
+   * which is the comparison nobody can make from outside the process. An
+   * engine that has served only one model answers 404 as {@link Refused},
+   * because that is a different answer from nothing having changed and only
+   * one of them is reassuring.
+   */
+  async diff(): Promise<Diff> {
+    return parseDiff(await this.#get("/v1/diff"));
+  }
+
+  /**
+   * Tell the engine to re-read its model source.
+   *
+   * Resolves to `reading` or `already running`. Both mean the caller got what
+   * they asked for; treating the second as a failure would retry a sync that
+   * is already under way.
+   *
+   * It carries no model, deliberately: this means "look now", not "install
+   * this". The engine already follows git, so the only thing this changes is
+   * the wait. A method that accepted a model would be a second way into
+   * production, one that skips the pull request, the checks and the diff that
+   * reports which numbers move.
+   *
+   * Needs the `deploy:model` scope, which `read:model` and `run:query` never
+   * imply.
+   *
+   * Resolving does not mean the new model is serving. A sync is not instant,
+   * and reporting a commit before the swap happened would be a claim a
+   * pipeline then asserts as fact. Poll {@link health} and read
+   * `origin.commit` to know when the new model is the one answering.
+   *
+   * An engine reading from a path has nothing to re-read and answers 404. A
+   * model that fails to load is not a failure of this call either: the engine
+   * keeps serving the previous one and says so in a 502. Both are
+   * {@link Refused}.
+   */
+  async reload(): Promise<ReloadStatus> {
+    const body = await this.#post("/v1/reload", {});
+    return String(body.status ?? "") as ReloadStatus;
   }
 
   async #get(path: string, params?: Record<string, string>): Promise<Record<string, unknown>> {

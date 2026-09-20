@@ -31,6 +31,18 @@ export type {
   Metric,
   Namespace,
   Result,
+  Origin,
+  Finding,
+  Diagnosis,
+  DoctorRun,
+  DoctorHistory,
+  TestCase,
+  TestReport,
+  Policy,
+  PolicyExplanation,
+  Change,
+  Diff,
+  ReloadStatus,
 } from "./models.js";
 
 /** The version of this client package. */
